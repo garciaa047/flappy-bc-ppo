@@ -1,0 +1,7 @@
+__pycache__/
+
+models/flappyPPO_*
+human_data/episode_*
+tensorboard_logs/*
+# plots/
+plot_results.py
