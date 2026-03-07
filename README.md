@@ -5,6 +5,12 @@ A Flappy Bird game built from scratch in Pygame and wrapped as a [Gymnasium](htt
 
 ---
 
+## Trained Agent Demo
+
+![Trained PPO agent playing Flappy Bird](gifs/gameplay_ep1.gif)
+
+---
+
 ## Project Overview
 
 RL agents learning Flappy Bird from scratch face a fundamental challenge, the reward signal is extremely sparse early in training. The bird crashes quickly, receives a -1 reward, and the agent has very little to learn from.
