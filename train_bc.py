@@ -1,5 +1,5 @@
 """
-train_bc.py — Train a Behavioural Cloning policy on collected human demonstrations.
+train_bc.py - Train a Behavioural Cloning policy on collected human demonstrations.
 
 Loads all episode_XXXX.npz files from human_data/, trains a BC policy using the
 imitation library, then saves a PPO-compatible model as flappyPPO_bc.
@@ -28,7 +28,7 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
 
-# ── Data loading ──────────────────────────────────────────────────────────────
+# --- Data loading ---
 
 def load_transitions(data_dir: str) -> Transitions:
     """
@@ -60,19 +60,19 @@ def load_transitions(data_dir: str) -> Transitions:
     acts     = np.concatenate(acts_list,     axis=0)
     next_obs = np.concatenate(next_obs_list, axis=0)
     dones    = np.concatenate(dones_list,    axis=0)
-    # imitation requires an infos array — unused by BC but must be present
+    # imitation requires an infos array - unused by BC but must be present
     infos    = np.array([{} for _ in range(len(obs))])
 
     logger.info(f"Loaded {len(files)} episode(s) | {len(obs):,} transitions")
     logger.info(
-        f"Score — min: {min(scores)}  max: {max(scores)}  "
+        f"Score - min: {min(scores)}  max: {max(scores)}  "
         f"mean: {np.mean(scores):.1f}  median: {np.median(scores):.1f}"
     )
 
     return Transitions(obs=obs, acts=acts, next_obs=next_obs, dones=dones, infos=infos)
 
 
-# ── Evaluation ────────────────────────────────────────────────────────────────
+# --- Evaluation ---
 
 def evaluate(model, n_episodes: int) -> float:
     """Run n_episodes headless and return mean reward."""
@@ -92,7 +92,7 @@ def evaluate(model, n_episodes: int) -> float:
         env.close()
 
     logger.info(
-        f"Eval ({n_episodes} eps) — "
+        f"Eval ({n_episodes} eps) - "
         f"mean: {np.mean(rewards):.2f}  "
         f"min: {min(rewards):.0f}  "
         f"max: {max(rewards):.0f}"
@@ -100,7 +100,7 @@ def evaluate(model, n_episodes: int) -> float:
     return float(np.mean(rewards))
 
 
-# ── Training ──────────────────────────────────────────────────────────────────
+# --- Training ---
 
 def train(data_dir, n_epochs, batch_size, l2_weight, save_name, eval_episodes):
     transitions = load_transitions(data_dir)
@@ -110,7 +110,7 @@ def train(data_dir, n_epochs, batch_size, l2_weight, save_name, eval_episodes):
     # Create a PPO model for its MlpPolicy architecture only.
     # BC trains the policy weights in-place via the shared policy object, so
     # saving ppo_model afterwards produces a file that PPO.load() accepts
-    # directly — no conversion needed for later fine-tuning.
+    # directly - no conversion needed for later fine-tuning.
     ppo_model = PPO("MlpPolicy", env, verbose=0)
 
     epoch_counter = [0]
@@ -131,7 +131,7 @@ def train(data_dir, n_epochs, batch_size, l2_weight, save_name, eval_episodes):
     )
 
     logger.info(
-        f"\nTraining BC — epochs: {n_epochs}  "
+        f"\nTraining BC - epochs: {n_epochs}  "
         f"batch_size: {batch_size}  l2_weight: {l2_weight}\n"
     )
 
@@ -148,7 +148,7 @@ def train(data_dir, n_epochs, batch_size, l2_weight, save_name, eval_episodes):
     env.close()
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+# --- Entry point ---
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(

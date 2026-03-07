@@ -1,5 +1,5 @@
 """
-flappy/env.py — Gymnasium environment wrapping FlappyBirdGame.
+flappy/env.py - Gymnasium environment wrapping flappy bird game in game.py.
 
 Observation space: Box(5,) float32, values normalized to [0, 1]
     [bird_y_norm, bird_velocity_norm, pipe_x_norm, pipe_top_norm, pipe_bottom_norm]
@@ -14,9 +14,9 @@ Reward:
      0.0  otherwise
 
 render_mode:
-    "human"     — visible pygame window (evaluation / debugging)
-    "rgb_array" — offscreen render, returns (H, W, 3) uint8 numpy array (training)
-    None        — no rendering (fastest training)
+    "human"     - visible pygame window (evaluation / debugging)
+    "rgb_array" - offscreen render, returns (H, W, 3) uint8 numpy array (training)
+    None        - no rendering (fastest training)
 """
 
 import os
@@ -24,17 +24,16 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 
-# ── Velocity normalization bounds ──────────────────────────────────────────────
-# Bird velocity in practice stays well within [-10, +10]; clip for safety.
+# --- Velocity bounds ---
+# Bird velocity clips to within [-10, +10].
 VEL_MIN = -10.0
 VEL_MAX =  10.0
 
 
 class FlappyBirdEnv(gym.Env):
     """
-    Gymnasium wrapper for FlappyBirdGame.
+    Gymnasium wrapper for game.py
 
-    The game object is owned internally (composition, not inheritance).
     flappy/game.py is left untouched.
     """
 
@@ -48,8 +47,7 @@ class FlappyBirdEnv(gym.Env):
         )
         self.render_mode = render_mode
 
-        # Suppress the pygame display window for non-human modes.
-        # Must be set BEFORE pygame.init() is called inside FlappyBirdGame.
+        # Remove the pygame display window for render modes other than human.
         if render_mode != "human":
             os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
@@ -64,7 +62,7 @@ class FlappyBirdEnv(gym.Env):
         # Fixed timestep: deterministic and reproducible across rollouts.
         self._fixed_dt = int(1000 / CONFIG["FPS"])  # ~16 ms at 60 FPS
 
-        # ── Spaces ────────────────────────────────────────────────────────────
+        # --- Spaces ---
         self.observation_space = spaces.Box(
             low=np.zeros(5, dtype=np.float32),
             high=np.ones(5,  dtype=np.float32),
@@ -74,14 +72,14 @@ class FlappyBirdEnv(gym.Env):
 
         self._prev_score = 0
 
-    # ── Gymnasium API ──────────────────────────────────────────────────────────
+    # --- Gymnasium API ----
 
     def reset(self, seed=None, options=None):
         """Reset to initial state. Returns (obs, info)."""
         super().reset(seed=seed)
 
         self.game.reset()
-        # Skip the WAITING state — that exists only for human keyboard input.
+        # Skip the WAITING state that exists only for human keyboard input.
         self.game.state = self._PLAYING
         self._prev_score = 0
 
@@ -93,25 +91,24 @@ class FlappyBirdEnv(gym.Env):
         """
         Advance one frame.
 
-        Parameters
-        ----------
-        action : int  — 0 (do nothing) or 1 (flap)
+        Parameters:
+        action : int - 0 (do nothing) or 1 (flap)
 
-        Returns
-        -------
+        Returns:
         obs         : np.ndarray shape (5,)
         reward      : float
         terminated  : bool
-        truncated   : bool  (always False — no time limit)
+        truncated   : bool  (When score > game.CONFIG["MAX_SCORE"] (250) epsiode is successful)
         info        : dict  {"score": int}
         """
         assert self.action_space.contains(action), f"Invalid action: {action}"
 
-        _, score, terminated = self.game.step(
+        _, score, terminated, truncated = self.game.step(
             action=bool(action), dt=self._fixed_dt
         )
 
         obs = self._get_obs()
+
 
         if terminated:
             reward = -1.0
@@ -122,7 +119,7 @@ class FlappyBirdEnv(gym.Env):
             reward = 0.0
 
         info = {"score": score}
-        return obs, reward, terminated, False, info
+        return obs, reward, terminated, truncated, info
 
     def render(self):
         """
@@ -156,8 +153,6 @@ class FlappyBirdEnv(gym.Env):
                 pygame.quit()
         except Exception:
             pass
-
-    # ── Internal ───────────────────────────────────────────────────────────────
 
     def _get_obs(self):
         """

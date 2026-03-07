@@ -1,54 +1,125 @@
-# flappy-bc-ppo
 
-A Flappy Bird environment built from scratch in pygame and wrapped as a [Gymnasium](https://gymnasium.farama.org/) environment, used to explore whether **Behavioural Cloning (BC) from human demonstrations can meaningfully accelerate PPO training** — and what happens when it does.
+# Flappy Bird RL: Behavioral Cloning + PPO vs PPO
 
-By [@garciaa047](https://github.com/garciaa047)
-
----
-
-## Why This Project
-
-Reinforcement learning agents learning Flappy Bird from scratch face a fundamental problem: the reward signal is extremely sparse early in training. The agent dies almost immediately, receives a −1 reward, and has very little signal to learn from. This makes the initial learning phase slow and sample-inefficient.
-
-This project explores a practical solution: **first teach the agent by imitating a human player**, then let PPO refine that behaviour through self-play. The hypothesis is that a BC-initialised agent should learn faster and more stably than one starting from random weights.
-
-The results confirmed this — but also revealed an interesting failure mode worth understanding.
+A Flappy Bird game built from scratch in Pygame and wrapped as a [Gymnasium](https://gymnasium.farama.org/) environment, used to compare **Behavioral Cloning (BC) + PPO against PPO by iteself**
 
 ---
 
-## The Pipeline
+## Project Overview
+
+RL agents learning Flappy Bird from scratch face a fundamental challenge, the reward signal is extremely sparse early in training. The bird crashes quickly, receives a -1 reward, and the agent has very little to learn from.
+
+This project tests a practical solution, to pretrain the agent on human gameplay demonstrations via Behavioral Cloning, then refine it later with PPO. The idea is that a BC initialized agent should be able to reach a good performance faster than one starting from random weights.
+
+The results confirmed this and also revealed an interesting training instability in combining BC + PPO.
+
+---
+
+## Results Summary
+
+| | PPO | BC + PPO |
+|---|---|---|
+| Peak average reward | ~21 | ~21 |
+| Timesteps to reach ~20 reward | ~1M | ~500k |
+| Training stability | Stable | Collapsed at ~800k |
+
+Behavioral cloning significantly accelerated early learning reaching the same performance level in roughly half the timesteps but introduced a later training instability that pure PPO avoided. 
+
+It is worth noting that the BC model was only trained on 20 human episodes with the rewards ranging from 15 to 41, with the mean and median both being 24.0, it is worth testing again with more episodes and a better average score for them.
+
+---
+
+## Key Contributions
+
+- **Custom Gymnasium environment** - built a complete Flappy Bird game in Pygame and wrapped it as a Gym environment with normalized observations, deterministic timesteps, and a score based truncation condition
+- **Human demonstration logging** - implemented a real-time gameplay recording system that captures `(obs, action, next_obs, reward, done)` transitions and filters episodes by quality
+- **Behavioral cloning pipeline** - trained a BC policy on human demonstrations using the `imitation` library, with the saved weights directly loadable by SB3's PPO
+- **BC + PPO integration** - initialized a PPO actor from BC weights and fine-tuned with a reduced learning rate to preserve the demonstration-derived policy
+- **Controlled experimental comparison** - trained both agents to 1M timesteps with identical environments and logged TensorBoard diagnostics for comparison
+
+---
+
+## Training Pipeline
 
 ```
-1. Play the game          →  collect_human_data.py
-2. Train on human demos   →  train_bc.py
-3. Fine-tune with PPO     →  finetune_ppo.py
-4. Evaluate               →  evaluate.py
+Human Gameplay  →  collect_human_data.py
+      ↓
+Demonstration Dataset  (obs, action, next_obs, reward, done)
+      ↓
+Behavioral Cloning  →  train_bc.py
+      ↓
+Initialized PPO Policy  →  finetune_ppo.py
+      ↓
+Final Agent
 ```
 
-Each stage is a standalone script. You can run only PPO from scratch (`train_ppo.py`) and compare it directly against the BC+PPO pipeline.
+The BC stage trains only the actor via supervised learning on human demonstrations. PPO then takes over with a randomly initialized critic, using the BC policy as its starting point rather than random weights.
+
+---
+
+## Methods
+
+### PPO (Baseline)
+Proximal Policy Optimization trains an agent from random weight initialization using environment rewards alone. Uses SB3's implementaion of PPO with `MlpPolicy` using the 5D observation space defined below.
+
+### Behavioral Cloning
+Human gameplay is recorded as `(obs, action, next_obs, reward, done)` transitions using `collect_human_data.py`. Only episodes scoring ≥ 15 pipes are kept to ensure a base quality for each episode. A BC policy is trained on these demonstrations using the `imitation` library via supervised learning.
+
+### BC + PPO
+The BC trained weights initialize the PPO actor network. PPO then fine tunes from this warm start using a reduced learning rate (`1e-4`) to avoid overwriting the BC initialization early in training. The critic remains randomly initialized.
+
+---
+
+## Environment
+
+Custom Flappy Bird implemented in Pygame, wrapped as a Gymnasium environment.
+
+| Property | Value |
+|---|---|
+| Observation space | `Box(5,)` float32 → (bird y, velocity, next pipe x, pipe top y, pipe bottom y) all normalized to [0, 1] |
+| Action space | `Discrete(2)` → 0: do nothing, 1: flap |
+| Reward | +1 per pipe passed, −1 on death, 0 otherwise |
+| Termination | Bird collides with a pipe or boundary |
+| Truncation | Score exceeds `MAX_SCORE` (250) → episode ends as a success |
+| Timestep | Fixed 60 FPS |
 
 ---
 
 ## Results
 
-### Sample Efficiency: BC+PPO vs PPO Only
+### 1. Reward Comparison
 
-The headline result: at **150k timesteps**, BC+PPO achieves an average reward of **13**, while PPO alone sits at **0.09**. PPO alone does not reach a comparable level of performance until approximately **500k timesteps** — over 3× more samples.
+![Reward comparison: PPO vs BC+PPO](./plots/plot_1_reward_comparison.png)
 
-![PPO and PPO + BC average reward plot](./plots/plot_1_reward_comparison.png)
+BC+PPO starts strong (~9 mean reward at step 0) and peaks at ~**21 around 500k timesteps**. It then collapses sharply to ~**2** around **800k timesteps**, partially recovering to ~4 by 1M. PPO alone starts below zero and climbs steadily throughout, reaching ~**20-21** by **1M timesteps**.
 
-### The Collapse
+### 2. Episode Length
 
-At around **190k–220k timesteps**, the BC+PPO agent's performance drops sharply — from ~13 average reward back down to ~4. This is not a bug. It is a well-known failure mode caused by the **value function cold start problem**:
+![Episode length comparison](./plots/plot_2_episode_length.png)
 
-- The BC stage only trains the *actor* (policy network). The *critic* (value function) is randomly initialised.
-- In the early PPO phase, the critic is noisy and produces small, inconsistent gradient updates — the BC policy is largely preserved.
-- Once the critic has trained long enough to produce confident estimates, it begins driving large policy updates. But those estimates are biased, having been fit to rollouts from an already-good policy. The result is a confident-but-wrong critic that pushes the actor into worse regions of parameter space.
-- The degraded actor produces worse rollouts, which makes the critic's estimates worse — a compounding feedback loop.
+Longer episodes correspond to better gameplay. BC+PPO starts at ~1100 steps and peaks at ~**2200 steps around 500k timesteps**, then collapses to ~**330 steps around 800k**, partially recovering to ~550 by 1M. PPO alone rises steadily throughout, reaching ~**2150 steps by 1M**, mirroring the reward curve.
 
-<!-- Insert collapse graph here showing reward drop around 190k steps -->
+### 3. Training Diagnostics (BC+PPO)
 
-Understanding *why* this happens is arguably more valuable than the result itself. Potential fixes include pre-warming the critic before PPO begins, reducing the learning rate further, or adding a KL penalty to slow policy drift.
+![Training diagnostics](./plots/plot_3_training_diagnostics.png)
+
+Shows value loss, explained variance, entropy loss, and policy gradient loss for BC+PPO across the full 1M timesteps. Explained variance rises from near zero to ~0.5 in the first 100k timesteps as the critic catches up to the BC initialized actor, then drops sharply around the collapse at ~800k. Entropy loss gradually decreasing indicates the policy becoming more deterministic over time.
+
+### 4. KL Divergence and Clip Fraction
+
+![KL and clip metrics](./plots/plot_4_kl_and_clip.png)
+
+Both PPO and BC+PPO are shown. PPO alone has high initial KL divergence ( ~0.025) and clip fraction ( ~0.175), reflecting large updates from random weights. BC+PPO shows much lower and more stable values throughout. This shows that the BC initialization starts the policy in a better region and requires less aggressive updating early in training.
+
+---
+
+## Key Findings
+
+- **BC dramatically speeds up early learning.** The BC initialized agent starts at ~9 mean reward and reaches ~21 by 500k timesteps, a level PPO alone doesn't reach until ~1M timesteps.
+- **PPO alone is slower but stable.** Without an imitation warm start, PPO climbs gradually and consistently throughout, ending near ~21 at 1M with no collapse.
+- **BC+PPO can suffer from policy collapse.** After peaking at ~21 around 500k timesteps, the BC+PPO policy collapses sharply to ~2 by 800k and only partially recovers. This is the **value function cold start problem**: the critic is randomly initialized while the actor starts from a strong BC policy. Once the critic becomes confident enough to drive large gradient updates, those updates are based on biased value estimates, pushing the actor into worse regions of parameter space. The degraded actor then produces worse rollouts, making the critic's estimates worse still. A compounding feedback loop.
+
+Potential Fixes: pre-warm the critic on BC rollouts before PPO begins, reduce the learning rate further, or add a KL penalty to slow policy drift.
 
 ---
 
@@ -57,110 +128,86 @@ Understanding *why* this happens is arguably more valuable than the result itsel
 ```
 flappy-bc-ppo/
 ├── flappy/
-│   ├── game.py               # Pygame Flappy Bird implementation
-│   └── env.py                # Gymnasium wrapper (observation, action, reward)
-├── train_ppo.py              # Train a PPO agent from scratch
-├── train_bc.py               # Train a BC policy on human demonstrations
-├── finetune_ppo.py           # Fine-tune a BC policy with PPO
-├── collect_human_data.py     # Play the game and log demonstrations
-├── evaluate.py               # Evaluate any saved model visually
+│   ├── game.py               # Pygame Flappy Bird game engine
+│   └── env.py                # Gymnasium wrapper (obs, action, reward)
+├── tensorboard_logs/         # Training logs
+│   ├── PPO_log/
+│   └── finetuned_PPO_log/
+├── human_data/               # Human demonstration episodes (.npz)
 ├── models/                   # Saved model checkpoints
-├── human_data/               # Collected human demonstration episodes (.npz)
-└── tensorboard_logs/         # Training logs
-    ├── PPO_log/
-    └── finetuned_PPO_log/
+├── train_ppo.py              # Train PPO from scratch (baseline)
+├── train_bc.py               # Train BC policy on human demonstrations
+├── finetune_ppo.py           # Fine-tune BC policy with PPO
+├── collect_human_data.py     # Play the game and log demonstrations
+└── evaluate.py               # Evaluate any saved model
 ```
-
-### Environment Design
-
-| Property | Value |
-|---|---|
-| Observation space | `Box(5,)` — bird y, velocity, next pipe x, pipe top y, pipe bottom y |
-| Action space | `Discrete(2)` — 0: do nothing, 1: flap |
-| Reward | +1 per pipe passed, −1 on death |
-| Timestep | Fixed 16ms (deterministic, reproducible) |
 
 ---
 
 ## Getting Started
 
-### Prerequisites
-
 ```bash
 pip install -r requirements.txt
 ```
 
-### Play the game
-
+**Play the game**
 ```bash
 python -m flappy.game
 ```
 
-### Collect human demonstrations
-
+**Collect human demonstrations**
 ```bash
 python collect_human_data.py
 python collect_human_data.py --max_episodes 30
 ```
 
-Only episodes scoring ≥ 15 pipes are saved. Each episode is stored as a `.npz` file in `human_data/`.
-
-### Train BC on your demonstrations
-
+**Train BC on demonstrations** (Should collect 15+ episodes to see results)
 ```bash
 python train_bc.py
 python train_bc.py --n_epochs 100 --batch_size 64
 ```
 
-Saves `models/flappyPPO_bc`.
-
-### Fine-tune with PPO
-
+**Fine tune BC model with PPO (BC+PPO pipeline)**
 ```bash
 python finetune_ppo.py
-python finetune_ppo.py --total_timesteps 500_000
+python finetune_ppo.py --total_timesteps 1_000_000
 ```
 
-Saves `models/flappyPPO_finetuned_latest` and `models/flappyPPO_finetuned_best_model`.
-
-### Train PPO from scratch (baseline)
-
+**Train PPO from scratch (baseline)**
 ```bash
 python train_ppo.py
 ```
 
-### Evaluate a model
-
+**Evaluate a model** (Leave out --fps XX for uncapped)
 ```bash
 python evaluate.py --model models/flappyPPO_finetuned_best_model --fps 60
 python evaluate.py --model models/flappyPPO_best_model --fps 60
-python evaluate.py --headless --episodes 50   # fast headless evaluation
+python evaluate.py --headless --episodes 50
 ```
 
-### View training curves
-
+**View training curves**
 ```bash
 tensorboard --logdir=./tensorboard_logs/
 ```
 
 ---
 
-## What I Learned
+## Tech Stack
 
-- **Imitation learning as a warm start is effective but not free.** BC significantly accelerates early PPO training, but introduces a new failure mode (value function cold start) that requires careful handling.
-
-- **The critic matters as much as the actor.** Most intuition about "the policy" focuses on the actor. This project made clear that a randomly initialised critic can actively destroy a well-trained actor once it becomes confident enough to produce large gradient updates.
-
-- **Building the full pipeline end-to-end is where the real learning happens.** Integrating pygame → Gymnasium → SB3 → imitation required understanding how each layer expects data, what assumptions each library makes, and where those assumptions conflict.
-
-- **Diagnosing failure is more instructive than achieving success.** The performance collapse around 200k steps was unexpected, but understanding *why* it happens — and what it would take to fix — is a deeper insight than simply watching the reward go up.
+- **Python**
+- [Pygame](https://www.pygame.org/) — custom Flappy Bird game engine
+- [Gymnasium](https://gymnasium.farama.org/) — RL environment interface
+- [Stable-Baselines3](https://stable-baselines3.readthedocs.io/) — PPO implementation
+- [Imitation](https://imitation.readthedocs.io/) — Behavioral Cloning
+- [PyTorch](https://pytorch.org/) — neural network backend
+- NumPy · Matplotlib
 
 ---
 
-## Future Work
+## What I Learned
 
-- [ ] Pre-warm the critic on BC rollouts before starting PPO updates
-- [ ] Add a KL divergence penalty to slow policy drift after BC initialisation
-- [ ] Experiment with DAgger as an alternative to offline BC
-- [ ] Add pixel-based observations and a CNN policy (`CnnPolicy`)
-- [ ] Replace placeholder rectangle sprites with proper Flappy Bird assets
+- **Imitation learning can dramatically accelerate RL training**, but it introduces failure modes that pure RL avoids — the warm start is not free.
+- **The critic matters as much as the actor.** A randomly initialized value function can actively degrade a well-trained actor once it becomes confident enough to produce large gradient updates.
+- **Training diagnostics are essential.** Reward curves alone don't tell the full story — value loss, KL divergence, and clip fraction reveal what's happening inside the update loop.
+- **Building the full pipeline end-to-end develops systems-level intuition.** Integrating Pygame → Gymnasium → SB3 → imitation required understanding how each library expects data and where their assumptions conflict.
+- **Diagnosing failure is more instructive than achieving success.** The BC+PPO collapse was unexpected, but understanding why it happens — and what it would take to fix — is a deeper insight than simply watching reward go up.

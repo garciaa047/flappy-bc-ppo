@@ -2,10 +2,9 @@ import pygame
 import random
 import sys
 
-# ── CONFIG ────────────────────────────────────────────────────────────────────
-# All tunable values live here. For progressive difficulty, mutate these values
-# as score increases (e.g. increase PIPE_SPEED, decrease PIPE_GAP) without
-# touching any game logic.
+# --- CONFIG ---
+# All config values. If adding progressive difficulty, mutate these values
+# as score increases (e.g. increase PIPE_SPEED, decrease PIPE_GAP)
 CONFIG = {
     "SCREEN_WIDTH":   288,
     "SCREEN_HEIGHT":  512,
@@ -19,9 +18,10 @@ CONFIG = {
     "BIRD_WIDTH":     34,
     "BIRD_HEIGHT":    24,
     "PIPE_WIDTH":     52,
+    "MAX_SCORE":      250,
 }
 
-# ── COLORS ────────────────────────────────────────────────────────────────────
+# --- COLORS ---
 SKY_BLUE    = (113, 197, 207)
 GROUND_TAN  = (222, 216, 149)
 PIPE_GREEN  = ( 83, 156,  77)
@@ -31,12 +31,12 @@ WHITE       = (255, 255, 255)
 BLACK       = (  0,   0,   0)
 RED         = (200,  50,  50)
 
-# ── GAME STATES ───────────────────────────────────────────────────────────────
+# --- GAME STATES ---
 WAITING   = "waiting"
 PLAYING   = "playing"
 GAME_OVER = "game_over"
 
-
+# -- GAME OBJECTS ---
 class Bird:
     def __init__(self, x, y):
         self.x        = x
@@ -58,7 +58,7 @@ class Bird:
     def draw(self, surface):
         rect = self.get_rect()
         pygame.draw.rect(surface, BIRD_YELLOW, rect)
-        # simple eye detail
+        # add eye detail
         eye_x = rect.right - 8
         eye_y = rect.top + 6
         pygame.draw.circle(surface, BLACK, (eye_x, eye_y), 3)
@@ -103,7 +103,7 @@ class PipePair:
         pygame.draw.rect(surface, PIPE_GREEN, self.top_rect)
         pygame.draw.rect(surface, PIPE_GREEN, self.bottom_rect)
 
-        # pipe caps (slightly darker, slightly wider)
+        # add pipe caps (slightly darker, slightly wider)
         cap_h   = 12
         cap_ext = 3
         top_cap = pygame.Rect(
@@ -138,7 +138,7 @@ class FlappyBirdGame:
 
         self.reset()
 
-    # ── Public API (designed for easy gymnasium wrapping later) ───────────────
+    # --- Gymnasium Env Style API ---
 
     def reset(self):
         """Reset game to initial state. Returns first observation."""
@@ -159,11 +159,12 @@ class FlappyBirdGame:
             self.bird.flap()
         self._update(dt)
         terminated = self.state == GAME_OVER
-        return self.state, self.score, terminated
+        truncated = self.score > CONFIG["MAX_SCORE"]
+        return self.state, self.score, terminated, truncated
 
     def get_observation(self):
         """
-        Returns a compact state dict — useful for RL feature engineering later.
+        Returns a observation state following gymnasium env format.
         """
         next_pipe = self._get_next_pipe()
         if next_pipe:
@@ -184,7 +185,7 @@ class FlappyBirdGame:
             "score":         self.score,
         }
 
-    # ── Internal ──────────────────────────────────────────────────────────────
+    # --- Game Logic ---
 
     def _get_next_pipe(self):
         """Return the next pipe the bird hasn't passed yet."""

@@ -1,13 +1,13 @@
 """
-collect_human_data.py — Play Flappy Bird and log transitions for behavioural cloning.
+collect_human_data.py - Play Flappy Bird and log transitions for behavioural cloning.
 
 Saves one .npz file per episode to human_data/.
 Each file contains:
-    obs      — (T, 5) float32   normalized observations  (matches FlappyBirdEnv)
-    acts     — (T,)   int64     actions (0 = do nothing, 1 = flap)
-    next_obs — (T, 5) float32   next normalized observations
-    rewards  — (T,)   float32   rewards (+1 pipe, -1 death, 0 otherwise)
-    dones    — (T,)   bool      True on the terminal step of an episode
+    obs      - (T, 5) float32   normalized observations  (matches FlappyBirdEnv)
+    acts     - (T,)   int64     actions (0 = do nothing, 1 = flap)
+    next_obs - (T, 5) float32   next normalized observations
+    rewards  - (T,)   float32   rewards (+1 pipe, -1 death, 0 otherwise)
+    dones    - (T,)   bool      True on the terminal step of an episode
 
 Controls: SPACE to flap | ESC / close window to quit and save current episode
 """
@@ -24,7 +24,7 @@ from flappy.env import VEL_MIN, VEL_MAX
 SAVE_DIR = "human_data"
 
 
-# ── Observation normalization (mirrors FlappyBirdEnv._get_obs) ────────────────
+# --- Normalization ---
 
 def _normalize_obs(raw: dict) -> np.ndarray:
     w = CONFIG["SCREEN_WIDTH"]
@@ -38,7 +38,7 @@ def _normalize_obs(raw: dict) -> np.ndarray:
     ], dtype=np.float32)
 
 
-# ── File helpers ──────────────────────────────────────────────────────────────
+# --- File helpers ---
 
 def _next_episode_index(save_dir: str) -> int:
     """Return the next episode number based on files already in save_dir."""
@@ -65,7 +65,7 @@ def _save_episode(save_dir, ep_idx, obs, acts, next_obs, rewards, dones) -> str:
     return path
 
 
-# ── Main collection loop ──────────────────────────────────────────────────────
+# --- Main collection loop ---
 
 def collect(max_episodes=None):
     os.makedirs(SAVE_DIR, exist_ok=True)
@@ -115,7 +115,7 @@ def collect(max_episodes=None):
         while running and (max_episodes is None or episodes_done < max_episodes):
             clock.tick(CONFIG["FPS"])
 
-            # ── Event handling ────────────────────────────────────────────────
+            # --- Event handling ---
             flap = False
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -135,7 +135,7 @@ def collect(max_episodes=None):
                             flush_episode()
                             game.reset()
 
-            # ── Step ──────────────────────────────────────────────────────────
+            # --- Step ---
             if game.state == PLAYING:
                 obs    = _normalize_obs(game.get_observation())
                 action = 1 if flap else 0
@@ -173,7 +173,7 @@ def collect(max_episodes=None):
         print(f"\nDone. {episodes_done} episode(s) saved to '{SAVE_DIR}/'.")
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+# --- Entry point ---
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Collect human Flappy Bird demonstrations")
